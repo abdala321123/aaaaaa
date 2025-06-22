@@ -1,79 +1,46 @@
 // File: netlify/functions/crypto.js
+// Version 2: Complete and self-contained with all helper functions included.
+
 const cache = require("@netlify/cache-utils");
 
-// Konfiguration
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 Stunden
+// Configuration
+const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Fetched securely from Netlify environment variables
 
-// Holen Sie den API-Schlüssel sicher aus den Netlify-Umgebungsvariablen
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-// Alle API-Endpunkte und Hilfsfunktionen von früher sind jetzt hier auf dem Server
-const API_ENDPOINTS = {
-    DCT: 'https://dctapp.de/whatstomine.php',
-    COINGECKO_SEARCH: 'https://api.coingecko.com/api/v3/search',
-    COINGECKO_PRICE: 'https://api.coingecko.com/api/v3/simple/price',
-    COINGECKO_DETAILED: 'https://api.coingecko.com/api/v3/coins',
-    BLOCKCHAIR: 'https://api.blockchair.com',
-    CRYPTOCOMPARE_DATA: 'https://min-api.cryptocompare.com/data/blockchain/mining/calculator',
-    CRYPTOCOMPARE_PRICE: 'https://min-api.cryptocompare.com/data/pricemultifull',
-    BINANCE_PRICE: 'https://api.binance.com/api/v3/ticker/24hr',
-    COINBASE_PRICE: 'https://api.coinbase.com/v2/exchange-rates',
-    GEMINI: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
-};
-
-const blockchairChainMap = {
-    'BTC': 'bitcoin', 'BCH': 'bitcoin-cash', 'LTC': 'litecoin', 'DOGE': 'dogecoin', 
-    'DASH': 'dash', 'ZEC': 'zcash', 'XMR': 'monero', 'BSV': 'bitcoin-sv', 
-    'GRS': 'groestlcoin', 'PPC': 'peercoin', 'XEC': 'ecash', 'ETC': 'ethereum-classic',
-    'ETH': 'ethereum'
-};
-
-// Hauptfunktion, die von Netlify aufgerufen wird
-exports.handler = async (event, context) => {
-    // CORS-Header: Erlaubt Anfragen von jeder Domain (wichtig für Shopify)
+// --- Main Handler ---
+// This is the function Netlify runs when the URL is called.
+exports.handler = async (event) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Content-Type': 'application/json'
     };
-    
-    // Preflight-Anfragen für CORS handhaben
+
     if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 204,
-            headers
-        };
+        return { statusCode: 204, headers };
     }
 
     const coinSymbol = event.queryStringParameters.coin;
     if (!coinSymbol) {
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Coin symbol query parameter is required.' })
-        };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'Coin symbol query parameter is required.' }) };
     }
     
     const cacheKey = `crypto-data-${coinSymbol.toUpperCase()}`;
 
-    // 1. Cache prüfen
+    // 1. Check Cache
     if (await cache.has(cacheKey)) {
         const { mtimeMs } = await cache.getStat(cacheKey);
         const age = Date.now() - mtimeMs;
         if (age < CACHE_DURATION_MS) {
             console.log(`Cache HIT for ${coinSymbol}`);
             const cachedData = await cache.get(cacheKey);
-            return {
-                statusCode: 200,
-                headers,
-                body: cachedData.toString()
-            };
+            return { statusCode: 200, headers, body: cachedData.toString() };
         }
     }
     
     console.log(`Cache MISS for ${coinSymbol}. Fetching fresh data...`);
 
-    // 2. Wenn Cache leer oder veraltet: Daten frisch abrufen
+    // 2. Fetch fresh data if cache miss
     try {
         const identifiedCoin = await identifyCoin(coinSymbol);
         if (!identifiedCoin) throw new Error(`Could not identify ${coinSymbol}`);
@@ -93,40 +60,48 @@ exports.handler = async (event, context) => {
             throw new Error(`Data collected for ${coinSymbol} was insufficient.`);
         }
 
-        // 3. Erfolgreiche Daten im Cache speichern
+        // 3. Save to cache
         const dataToCache = JSON.stringify(finalData);
         await cache.set(cacheKey, Buffer.from(dataToCache));
 
-        return {
-            statusCode: 200,
-            headers,
-            body: dataToCache
-        };
+        return { statusCode: 200, headers, body: dataToCache };
 
     } catch (error) {
-        console.error(`Error fetching data for ${coinSymbol}:`, error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: error.message })
-        };
+        console.error(`Error processing ${coinSymbol}:`, error);
+        return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
     }
 };
 
-// --- Alle Hilfsfunktionen von früher sind jetzt hier ---
 
-async function safeFetch(promise) { try { return await promise; } catch (error) { console.warn(`A fetch op failed: ${error.message}`); return null; } }
+// ==================================================================
+// --- ALL HELPER FUNCTIONS (NOW FULLY INCLUDED) ---
+// ==================================================================
+
+const API_ENDPOINTS = {
+    DCT: 'https://dctapp.de/whatstomine.php',
+    COINGECKO_SEARCH: 'https://api.coingecko.com/api/v3/search',
+    COINGECKO_PRICE: 'https://api.coingecko.com/api/v3/simple/price',
+    COINGECKO_DETAILED: 'https://api.coingecko.com/api/v3/coins',
+    BLOCKCHAIR: 'https://api.blockchair.com',
+    CRYPTOCOMPARE_DATA: 'https://min-api.cryptocompare.com/data/blockchain/mining/calculator',
+    CRYPTOCOMPARE_PRICE: 'https://min-api.cryptocompare.com/data/pricemultifull',
+    BINANCE_PRICE: 'https://api.binance.com/api/v3/ticker/24hr',
+    COINBASE_PRICE: 'https://api.coinbase.com/v2/exchange-rates',
+    GEMINI: `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent`
+};
+
+const blockchairChainMap = {
+    'BTC': 'bitcoin', 'BCH': 'bitcoin-cash', 'LTC': 'litecoin', 'DOGE': 'dogecoin', 
+    'DASH': 'dash', 'ZEC': 'zcash', 'XMR': 'monero', 'BSV': 'bitcoin-sv', 
+    'GRS': 'groestlcoin', 'PPC': 'peercoin', 'XEC': 'ecash', 'ETC': 'ethereum-classic',
+    'ETH': 'ethereum'
+};
+
+// --- UTILITY & VALIDATION ---
+async function safeFetch(promise) { try { return await promise; } catch (error) { console.warn(`A fetch op failed but was handled: ${error.message}`); return null; } }
 function isDataSufficient(data) { if (!data) return false; return !!(data.id && data.name && data.tag && data.price > 0 && (data.nethash > 0 || data.difficulty > 0)); }
-async function identifyCoin(query) { /* ...komplette identifyCoin Funktion von vorher... */ }
-function mergeDataSources(coin, price, blockchair, cryptocompare, dct, geckoDetailed) { /* ...komplette mergeDataSources Funktion von vorher... */ }
-async function fillMissingValuesWithGemini(data) { /* ...komplette fillMissingValuesWithGemini Funktion von vorher... */ }
-async function callGeminiAPI(prompt) { /* ...komplette callGeminiAPI Funktion von vorher... */ }
-async function findCoinOnCoinGecko(query) { /* ...etc... */ }
-// ... und so weiter für ALLE anderen Hilfsfunktionen (fetchEnhancedPrice, fetchCoinGeckoPrice, etc.)
-// Kopieren Sie einfach den gesamten Block der Hilfsfunktionen aus dem vorherigen Code hierher.
-// Stellen Sie sicher, dass sie außerhalb der 'handler' Funktion, aber in derselben Datei sind.
 
-// Beispielhaft hier einige der Funktionen reinkopiert, Sie müssen ALLE einfügen:
+// --- CORE LOGIC HELPERS ---
 async function identifyCoin(query) {
     let coinInfo = await safeFetch(findCoinOnCoinGecko(query));
     if (coinInfo) return coinInfo;
@@ -140,6 +115,64 @@ async function identifyCoin(query) {
     if (geminiSymbol) return await safeFetch(findCoinOnCoinGecko(geminiSymbol.trim()));
     return null;
 }
+
+function mergeDataSources(coin, price, blockchair, cryptocompare, dct, geckoDetailed) {
+    const data = {
+        id: coin.id, name: coin.name, tag: coin.symbol.toUpperCase(),
+        price: price?.price || null, priceChange24h: price?.priceChange24h || null,
+        marketCap: price?.marketCap || geckoDetailed?.market_data?.market_cap?.usd || null,
+        nethash: null, blockReward: null, blockTime: null, difficulty: null
+    };
+    if (dct && !dct.error) {
+        data.nethash = dct.nethash; data.blockTime = dct.block_time; data.blockReward = dct.block_reward; data.difficulty = dct.difficulty;
+    }
+    if (cryptocompare) {
+        data.nethash = cryptocompare.NetHashesPerSecond || data.nethash; data.blockTime = cryptocompare.BlockTime || data.blockTime;
+        data.blockReward = cryptocompare.BlockReward || data.blockReward; data.difficulty = cryptocompare.Difficulty || data.difficulty;
+    }
+    if (blockchair) {
+        data.nethash = blockchair.hashrate_24h || data.nethash; data.difficulty = blockchair.difficulty || data.difficulty;
+        if (!data.blockTime && blockchair.blocks_24h > 0) data.blockTime = 86400 / blockchair.blocks_24h;
+    }
+    if (!data.nethash && data.difficulty && data.blockTime > 0) {
+        data.nethash = data.difficulty * (2**32) / data.blockTime;
+    }
+    return data;
+}
+
+async function fillMissingValuesWithGemini(data) {
+    if (isDataSufficient(data)) return data; // Don't run if not needed
+    if (!GEMINI_API_KEY) { console.warn("Gemini API key not set. Skipping fill."); return data; }
+    
+    const fields = {
+        price: `current price of ${data.name} (${data.tag}) in USD`,
+        nethash: `current network hashrate of ${data.name} (${data.tag}) in H/s`,
+        blockReward: `current block reward for ${data.name} (${data.tag})`,
+        blockTime: `current average block time in seconds for ${data.name} (${data.tag})`,
+    };
+    for (const key in fields) {
+        if (!data[key] || data[key] <= 0) {
+            const prompt = `What is the ${fields[key]}? Respond with only the numerical value.`;
+            const result = await safeFetch(callGeminiAPI(prompt));
+            if (result) {
+                const numValue = parseFloat(result.replace(/[^0-9.]/g, ''));
+                if (!isNaN(numValue) && numValue > 0) data[key] = numValue;
+            }
+        }
+    }
+    return data;
+}
+
+
+// --- INDIVIDUAL FETCH FUNCTIONS ---
+async function callGeminiAPI(prompt) {
+    const url = `${API_ENDPOINTS.GEMINI}?key=${GEMINI_API_KEY}`;
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }]}) });
+    if (!response.ok) throw new Error(`Gemini API Error: ${response.statusText}`);
+    const result = await response.json();
+    return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+}
+
 async function findCoinOnCoinGecko(query) { 
     const url = `${API_ENDPOINTS.COINGECKO_SEARCH}?query=${encodeURIComponent(query)}`;
     const response = await fetch(url);
@@ -150,4 +183,98 @@ async function findCoinOnCoinGecko(query) {
     const bestMatch = data.coins.find(c => c.symbol.toLowerCase() === lowerQuery) || data.coins.find(c => c.name.toLowerCase() === lowerQuery) || data.coins[0];
     return { id: bestMatch.id, symbol: bestMatch.symbol, name: bestMatch.name };
 }
-// ... FÜGEN SIE HIER ALLE WEITEREN HELFERFUNKTIONEN EIN ...
+
+async function fetchEnhancedPrice(coinInfo) {
+    for (const source of [
+        () => fetchCoinGeckoPrice(coinInfo),
+        () => fetchCryptoComparePrice(coinInfo.symbol),
+        () => fetchBinancePrice(coinInfo.symbol),
+        () => fetchCoinbasePrice(coinInfo.symbol)
+    ]) {
+        const result = await safeFetch(source());
+        if (result?.price > 0) return result;
+    }
+    return null;
+}
+
+async function fetchCoinGeckoPrice(coinInfo) { 
+    if (!coinInfo?.id) return null;
+    const url = `${API_ENDPOINTS.COINGECKO_PRICE}?ids=${coinInfo.id}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`; 
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const coinData = data[coinInfo.id];
+    return coinData ? { price: coinData.usd, priceChange24h: coinData.usd_24h_change, marketCap: coinData.usd_market_cap } : null; 
+}
+
+async function fetchCryptoComparePrice(symbol) { 
+    if (!symbol) return null;
+    const url = `${API_ENDPOINTS.CRYPTOCOMPARE_PRICE}?fsyms=${symbol.toUpperCase()}&tsyms=USD`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = await response.json();
+    const coinData = data.RAW?.[symbol.toUpperCase()]?.USD;
+    return coinData ? { price: coinData.PRICE, priceChange24h: coinData.CHANGEPCT24HOUR, marketCap: coinData.MKTCAP } : null; 
+}
+
+async function fetchCoinGeckoDetailed(coinInfo) { 
+    if (!coinInfo?.id) return null;
+    const url = `${API_ENDPOINTS.COINGECKO_DETAILED}/${coinInfo.id}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.json();
+}
+
+async function fetchBinancePrice(symbol) { 
+    if (!symbol) return null;
+    const url = `${API_ENDPOINTS.BINANCE_PRICE}?symbol=${symbol.toUpperCase()}USDT`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return { price: parseFloat(d.lastPrice), priceChange24h: parseFloat(d.priceChangePercent) };
+}
+
+async function fetchCoinbasePrice(symbol) { 
+    if (!symbol) return null;
+    const url = `${API_ENDPOINTS.COINBASE_PRICE}?currency=${symbol.toUpperCase()}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.data?.rates?.USD ? { price: parseFloat(d.data.rates.USD) } : null;
+}
+
+async function fetchBlockchairStats(coinInfo) { 
+    const chain = blockchairChainMap[coinInfo.symbol.toUpperCase()];
+    if (!chain) return null;
+    const url = `${API_ENDPOINTS.BLOCKCHAIR}/${chain}/stats`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.data;
+}
+
+async function fetchCryptoCompareData(symbol) { 
+    if (!symbol) return null;
+    const url = `${API_ENDPOINTS.CRYPTOCOMPARE_DATA}?fsyms=${symbol}&tsyms=USD`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return (d.Response === 'Error') ? null : d?.Data?.[symbol];
+}
+
+async function getValidNetworkDataFromDct(coinInfo) { 
+    const { symbol, name } = coinInfo;
+    const s = symbol.toUpperCase();
+    let data = await fetchNetworkDataFromBackend(s);
+    if (data && !data.error && data.tag?.toUpperCase() === s) return data;
+    data = await fetchNetworkDataFromBackend(name);
+    if (data && !data.error && data.tag?.toUpperCase() === s) return data;
+    return null;
+}
+
+async function fetchNetworkDataFromBackend(query) { 
+    const url = `${API_ENDPOINTS.DCT}?coin=${encodeURIComponent(query)}&proxy=1`;
+    const r = await fetch(url);
+    if (!r.ok) return { error: `Server error` };
+    return r.json();
+}
